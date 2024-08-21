@@ -26,11 +26,11 @@ Missing vs zero value
     ptr
     map[string]any, mapstructure
     default values
+Type pollution
 Custom serialization
     - built in support: time.Time, []byte
     - Value?
 Streaming
-Type pollution
 
 
 -->
@@ -41,7 +41,7 @@ Everybody knows [JSON](https://www.json.org/), it's a simple serialization forma
 However, as they say, the devil is in the details.
 In this article, we'll explore some big picture aspects of using JSON and some low level details.
 
-## Serialization
+### Serialization
 
 Before diving into JSON, I'd like to take a look at serialization in general and discuss common mistakes I've seen my customers make.
 
@@ -102,7 +102,7 @@ Consider the following request:
 Listing 1 shows a JSON request.
 It's a valid JSON, but the longitude (`lng`) is above the maximal longitude value of 180.
 
-## JSON
+### JSON
 
 Let's start diving into the JSON format.
 
@@ -155,7 +155,7 @@ This package defines the following API:
 Pick the right method depending on the situation.
 For example, if you decode an incoming HTTP request body, that implements `io.Reader`, use `json.NewDecoder`.
 
-## Unmarshaling
+### Unmarshaling
 
 Most of the time, you'll work with structs to marshal or unmarshal JSON.
 `encoding/json` looks only at exported fields (ones starting with capital letter).
@@ -194,7 +194,7 @@ However, in JSON the convention is to use lower case names.
 and in Listing 2 uses the `login` from the JSON document to fill the `Login` field.
 
 Say you have a JSON document with `name` member and you want to use it to populate the `Login` field,
-for this you can use [field tags](FIXME).
+for this you can use [field tags](https://go.dev/ref/spec#Struct_types).
 
 **Listing 3: Using Field Tags**
 
@@ -226,9 +226,251 @@ On line 16 you use the field tag `json:"name"` to tell `encoding/json` to use th
 On lines 20-23 you unmarshal the JSON document to the `u` variable and on line 24 you print it.
 You can see that the `Login` field is filled from the `name` JSON member.
 
-The field tags used by `encoding/json` has a mini-langugae, [read the documentation](FIXME) to learn more.
+The field tags used by `encoding/json` has a mini-langugae, 
+[read the documentation](https://pkg.go.dev/encoding/json#Marshal) to learn more.
 
-## Missing vs Zero Values
+### Missing vs Zero Values
+
+Go initializes each variable to it's zero value.
+If you declare `var s string` then Go will assign `s` to the empty string (`""`),
+which is the zero value for strings.
+Default initialization is great, but when working with JSON it creates an issue of zero vs missing values.
+
+Let see an example, say you have the following request for starting a virtual machine (VM).
+
+**Listing 4: `StartVM` struct
+```go
+08 type StartVM struct {
+09     Image string
+10     Count int
+11 }
+```
+
+Listing 4 shows the request for starting a VM.
+On line 9 we have the image and on line 10 we have a count of how many VMs to start.
+
+You parse an incoming request, in the `Image` field you see `"debian:bookworm-slim"` and in the `Count` field you see `0`.
+Now you have a problem, 
+if the user actually sent a `0`, it's an error,
+but if the user didn't send `count` in the JSON, you need to default to `1`.
+How can you know?
+
+Below you'll see three ways to solve this missing-vs-zero value,
+each with its own pluses and minuses.
+
+_NOTE: I'm going to use the same data for all the examples: `data := []byte(`{"image": "debian:bookworm-slim"}`)`_
+
+#### Using a Pointer
+
+**Listing 5: Using a Pointer**
+
+```go
+24 type StartVMPtr struct {
+25     Image string
+26     Count *int
+27 }
+```
+
+Listing 5 shows the `StartVMPtr` struct. On line 24 you define the count as a pointer to `int`.
+
+**Listing 6: Unmarshaling with a Pointer**
+
+```go
+32     var req StartVMPtr
+33     if err := json.Unmarshal(data, &req); err != nil {
+34         return err
+35     }
+36 
+37     if req.Count == nil { // User didn't send "count", use default value
+38         c := 1
+39         req.Count = &c
+40     }
+41 
+42     if *req.Count < 1 {
+43         return fmt.Errorf("bad count: %d", *req.Count)
+44     }
+```
+
+Listing 6 shows how to use `StartVMPtr`.
+On lines 32-35 you define `req` and unmarshal the request data to it.
+On line 37 you check if `req.Count` is `nil`,
+if `req.Count` is `nil` it means the user didn't send `count` in the request JSON,
+and then on lines 38,39  you assign the default value of `1` to `req.Count`.
+
+On lines 42-44 you check that `req.Count` is a valid value.
+You should do the same for `req.Image`.
+
+The problem with the pointer approach is that you use pointers,
+which might lead to `nil` pointer panics and also makes it harder to work with `req.Count` since you need to dereference (e.g. `*req.Count`) it every time you need the actual int value.
+
+
+#### Using a Map
+
+Another option is to use a `map[string]any`, then you can check if `count` is in the incoming JSON.
+
+**Listing 7: Using a Map**
+
+```go
+53     var m map[string]any
+54     if err := json.Unmarshal(data, &m); err != nil {
+55         return err
+56     }
+57 
+58     if _, ok := m["count"]; !ok { // User didn't send "count", use default value
+59         m["count"] = 1
+60     }
+61 
+62     image, ok := m["image"].(string)
+63     if !ok || image == "" {
+64         return fmt.Errorf("bad image: %#v", m["image"])
+65     }
+66 
+67     count, ok := m["count"].(float64)
+68     if !ok {
+69         return fmt.Errorf("bad count: %#v", m["count"])
+70     }
+71 
+72     if count < 1 {
+73         return fmt.Errorf("bad count: %f", count)
+74     }
+75 
+76     req := StartVM{
+77         Image: image,
+78         Count: int(count),
+79     }
+```
+
+Listing 7 show how to use a map to know if the user passed `count`.
+On lines 53-56 you unmarshal the request data to `map[string]any`.
+On lines 58-60 you check if `m` has a `count` key and if not assign it to the default value of `1`.
+On lines 62-65 you extract the `image` value from `m` and use type assertion to convert it to a string.
+On lines 67-70 you extract `count` the same way, note that `count` has the type of `float64` which is what `encoding/json` default to in JSON numbers.
+On lines 72-74 you check count for a valid value.
+Finally, on lines 76-79 you create the request.
+On line 78 you convert `count` from `float64` to an `int`.
+
+
+This approach has much more code, and every time you work with `any` you need to do type assertions.
+To each the pain, you can look at [mapstructure](https://pkg.go.dev/github.com/mitchellh/mapstructure) that unmarshals from `map[string]any` into a struct.
+
+#### Using Default Values
+
+The last approach, which I prefer, is to use default values.
+
+**Listing 8: Using default values**
+
+```go
+88     req := StartVM{
+89         Count: 1,
+90     }
+91 
+92     if err := json.Unmarshal(data, &req); err != nil {
+93         return err
+94     }
+95 
+96     if req.Count < 1 {
+97         return fmt.Errorf("bad count: %d", req.Count)
+98     }
+```
+
+Listing 8 shows how to use default values.
+On lines 88-90 you create `req` with the `Count` field initialized to `1`.
+On lines 92-94 you unmarshal the data into `req`.
+On lines 96-98 you check that `req.Count` is valid.
+If the user didn't send `count`, then `encoding/json` won't change `Count` and it'll stay the default 1.
+If the user does send `count`, it'll override the current value in `Count` and you can check for correctness.
+
+### Type Pollution
+
+Say you'd like to parse a very complex JSON, but you need only parts of it.
+For this example, look at the JSON returned from [stocktwits](https://stocktwits.com/).
+
+To get the JSON for Apple, head over to https://api.stocktwits.com/api/2/streams/symbol/AAPL.json.
+The pretty-printed returned JSON is about 2,680 lines.
+I'm not going to show the whole JSON, but only a redacted version of it:
+
+**Listing 9: AAPL JSON**
+
+```json
+01 {
+02   "symbol": {
+03     "symbol": "AAPL",
+04     "title": "Apple Inc",
+05     ...
+06   },
+07   "messages": [
+08     {
+09       "id": 583655547,
+10       "body": "$AAPL \n\ngoing up until sep event?",
+11       "created_at": "2024-08-21T14:25:32Z",
+12       "symbols": [
+13         {
+14           "symbol": "AAPL",
+15           ...
+16         }
+17       ],
+18       ...
+19     },
+20     {
+21       "id": 583655288,
+22       "body": "$AAPL Continues to show good strength! \nhttps://share.trendspider.com/chart/AAPL/66823y2dkm",
+23       "created_at": "2024-08-21T14:24:24Z",
+24       "symbols": [
+25         {
+26           "symbol": "AAPL",
+27           ...
+28         }
+29       ],
+30     }
+31   ],
+32   ...
+33 }
+```
+
+Listing 9 shows the redacted JSON.
+You are only interested in the `messages` member on line 7,
+and in each message you are only interested in the `symbols` member (lines 12 & 24).
+Inside each symbol, you are only interested in the `symbol` member.
+
+You'd like to know which stocks that are not `AAPL` appear in the message and the count of each.
+Something like `{"IBM": 3, "INTC": 2}`.
+
+If you're going to model all of the JSON using structs, you create many structs for each part of it.
+However, these structs are one-off and used only for parsing. You create a "type pollution".
+
+You can take the fact that `encoding/json` ignores JSON members that do not appear in the struct.
+And to avoid type pollution, you can use an anonymous struct.
+
+**Listing 10: Parsing AAPL JSON**
+
+```go
+30     var reply struct { // anonymous struct
+31         Messages []struct {
+32             Symbols []struct {
+33                 Symbol string
+34             }
+35         }
+36     }
+37 
+38     if err := json.Unmarshal(data, &reply); err != nil {
+39         return nil, err
+40     }
+41 
+42     related := make(map[string]int)
+43     for _, m := range reply.Messages {
+44         for _, s := range m.Symbols {
+45             if s.Symbol != "AAPL" {
+46                 related[s.Symbol]++
+47             }
+48         }
+49     }
+```
+
+Listing 10 shows how to parse the complex JSON returned from stocktwits.
+On lines 30-36 you define `reply` which is an anonymous struct containing only the fields you are interested in.
+On lines 38-48 you unmarshal the JSON data into `reply`.
+On lines 42-49 you go over the message and update the `related` count.
+
 
 ### Conclusion
 
