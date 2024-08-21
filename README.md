@@ -471,6 +471,95 @@ On lines 30-36 you define `reply` which is an anonymous struct containing only t
 On lines 38-48 you unmarshal the JSON data into `reply`.
 On lines 42-49 you go over the message and update the `related` count.
 
+Now let's look at the other side - marshalling.
+We'll look into two things - custom marshalling and streaming.
+
+### Custom Marshaling
+
+Say you have the following `Value` struct
+
+**Listing 11: Value**
+
+```go
+09 type Unit string
+10 
+11 const (
+12     Meter = "meter"
+13     Inch  = "inch"
+14 )
+15 
+16 type Value struct {
+17     Unit   Unit
+18     Amount float64
+19 }
+```
+
+Listing 11 shows the `Value` struct which has `Unit` and `Amount` fields.
+
+By default, a `Value` will be marshaled by `encoding/json` as an object with `Unit` and `Amount` members.
+However, you need to marshal a `Value` as a JSON string in the format `2.1meter`.
+
+You can tell `encoding/json` to use a custom marshaling for your types by implementing the [`json.Marshaler`](https://pkg.go.dev/encoding/json#Marshaler) interface.
+When you implement `json.Marshaler` use these three steps:
+1. Convert your type to a type `encoding/json` can handle
+2. Use `json.Marshal`
+3. There is no step 3 :)
+
+**Listing 12: Implementing json.Marshaler**
+
+```go
+21 func (v Value) MarshalJSON() ([]byte, error) {
+22     // Step 1: Convert to type known to encoding/json
+23     s := fmt.Sprintf("%f%s", v.Amount, v.Unit)
+24 
+25     // Step 2: Use json.Marshal
+26     return json.Marshal(s)
+27 }
+```
+
+Listing 12 shows a custom marshaling for `Value` by implementing the `json.Marshal` interface.
+On line 23 you used `fmt.Sprintf` to create a string from the value.
+On line 26 you use `json.Marshal` to create a JSON string.
+
+Now a `Value{Meter, 2.1}` will be emitted as `"2.10000meter"`.
+
+If you want to unmarshal that string back to a `Value`, you'll need to implement [`json.Unmarshaler`](https://pkg.go.dev/encoding/json#Unmarshaler).
+
+**Listing 13: Custom Unmarshaling**
+
+```go
+29 func (v *Value) UnmarshalJSON(data []byte) error {
+30     if len(data) < 2 {
+31         return fmt.Errorf("value too small")
+32     }
+33 
+34     // "2.1meter"
+35     r := bytes.NewReader(data[1 : len(data)-1]) // trim ""
+36     var a float64
+37     var u Unit
+38     if _, err := fmt.Fscanf(r, "%f%s", &a, &u); err != nil {
+39         return err
+40     }
+41 
+42     v.Amount = a
+43     v.Unit = u
+44 
+45     return nil
+46 }
+```
+
+Listing 13 shows how to implement `json.Unmarshaler`
+On line 29 you define `UnmarshalJSON` with a pointer receiver.
+You need to use a pointer receiver since you change the fields of this receiver.
+On lines 35-40 you use `fmt.Fscanf` to read the values from `data` into `a` and `u`.
+I prefer to scan into new variables and not `v`'s fields in case the first scanned value works and the second does not.
+One lines 42-43 you assign `a' and `u` to `v`'s fields.
+
+
+### Streaming JSON
+
+
+
 
 ### Conclusion
 
