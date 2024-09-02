@@ -8,37 +8,10 @@ url = "FIXME"
 author = "mikit"
 +++
 
-<!--
-JSON
-
-Serialization in general
-    common mistakes: serialize inside, layers objects, validation
-JSON Format
-    textual, no schema
-    size of 123
-
-    types
-    []byte, io.Reader/io.Writer
-Exported names
-    field tags
-    Also -, omitempty, ...
-Missing vs zero value
-    ptr
-    map[string]any, mapstructure
-    default values
-Type pollution
-Custom serialization
-    - built in support: time.Time, []byte
-    - Value?
-Streaming
-
-
--->
-
 ### Introduction
 
 Everybody knows [JSON](https://www.json.org/), it's a simple serialization format and the default format for REST APIs.
-However, as they say, the devil is in the details.
+However, the devil is in the details.
 In this article, we'll explore some big picture aspects of using JSON and some low level details.
 
 ### Serialization
@@ -46,14 +19,16 @@ In this article, we'll explore some big picture aspects of using JSON and some l
 Before diving into JSON, I'd like to take a look at serialization in general and discuss common mistakes I've seen my customers make.
 
 Serialization is the process of converting a value in Go to bytes on one side and converting a sequence of bytes to a value on the other side.
-You might ask: Why do you need serialization?
+The question is: Why do you need serialization?
 
 The answer is that under the hood, computers stores everything in bytes.
 When you need to transfer data between two pieces of code that don't share memory,
 you first need to serialize the data and then transfer it.
 You'll use serialization in network operations, saving data to disk or a database and more.
 
-The first the common mistake is code that passes serialized data in regular function calls.
+### Common Mistakes in Serialization
+
+The first the mistake is passing serialized data in regular function calls.
 For example, say you pass time as the string `"2024-08-19T12:12:39.295144041Z"`,
 which means that when you want to do some date related operations, say get the year, 
 you need to call `time.Parse` to convert it back to a `time.Time` object.
@@ -66,8 +41,8 @@ If you look at the major three layers of a program, then only the API and the st
 The second mistake is using the same data structure in different layers of your code.
 When you work with document oriented databases such as ElasticSearch,
 it's super convenient to get a request for a document, pluck it from the database and return it "as is".
-However, what you are doing is tying the storage layer to the business layer to the API layer.
-Which means that is you make a change to the database schema, you have changes you API - not a recipe for happy users.
+However, you are tying the storage layer to the business layer to the API layer.
+Which means that if you make a change to the database schema, you have changed your API - not a recipe for happy users.
 
 Each of these layers have a different change velocity.
 The API layer has low to zero velocity, the business layer has high velocity and the storage layer has medium velocity.
@@ -76,7 +51,7 @@ You should have a different `User` type at each layer.
 
 ![](layers-user.png)
 
-At the beginning, all of these types look the same.
+At the beginning, these `User` types look the same.
 But, over time, each layer `User` type diverge.
 This way, you can make database schema changes without affecting your API.
 
@@ -100,7 +75,8 @@ Consider the following request:
 ```
 
 Listing 1 shows a JSON request.
-It's a valid JSON, but the longitude (`lng`) is above the maximal longitude value of 180.
+
+The request is a valid JSON, but the longitude (`lng`) is above the maximal longitude value of 180.
 
 ### JSON
 
@@ -113,7 +89,6 @@ but in JSON it's encoded as the string `123` which is three bytes.
 
 No schema means you can quickly develop and change the data,
 however no schema means you need to work harder on validating incoming data.
-
 
 Every serialization protocol defines its own set of types,
 and it's up to the language to decide on the mapping between JSON types and the types in the language.
@@ -131,12 +106,14 @@ In Go, the mapping is as follows:
 
 
 Some points to consider:
-- Not everything is nil-able in Go. In JSON you can have `null` in a string member, but in Go you can have nil in a string field.
+- Not everything in Go is nil-able. In JSON you can have a `null` string member, but in Go you can't have nil string field.
 - JSON has one number type, Go has many.
 - JSON arrays can have mixed types, Go slices can't - unless you use `[]any` which is painful since you need to do type assertions.
 - Using structs, you can give `encoding/json` hints on how to convert JSON types to Go types.
-- JSON does not have a `timestamp` like Go's `time.Time`.
-- JSON does not have binary type such as Go's `[]byte`.
+- Some things are missing from JSON
+- `timestamp` like Go's `time.Time`.
+- Binary type such as Go's `[]byte`.
+- Comments
 
 ## `encoding/json` API
 
@@ -186,7 +163,7 @@ Listing 2 shows unmarshaling JSON document.
 On lines 09-13 you define the JSON data with "login" and "nick" members.
 On lines 15-18 you define the `User` type with `Login` and `U
 On line 20 you define a `u` variable and on lines 21-23 you unmarshal the JSON data into it.
-Finally, on line 24 you print `u`. You can see that there's no error and only `Login` is filled.
+Finally, on line 24 you print `u`. You can see that there's no error and only `Login` was filled.
 
 `encoding/json` works only with exported fields that start with uppercase letter.
 However, in JSON the convention is to use lower case names.
@@ -348,7 +325,6 @@ On lines 67-70 you extract `count` the same way, note that `count` has the type 
 On lines 72-74 you check count for a valid value.
 Finally, on lines 76-79 you create the request.
 On line 78 you convert `count` from `float64` to an `int`.
-
 
 This approach has much more code, and every time you work with `any` you need to do type assertions.
 To each the pain, you can look at [mapstructure](https://pkg.go.dev/github.com/mitchellh/mapstructure) that unmarshals from `map[string]any` into a struct.
@@ -558,11 +534,198 @@ One lines 42-43 you assign `a' and `u` to `v`'s fields.
 
 ### Streaming JSON
 
+There are cases where the data is too large, or comes at unknown intervals.
+In these cases, you'd want to stream the data instead of wait for all the data to come and then construct a huge JSON reply.
 
+The JSON protocol does not have built-in support for streaming, the common approach is to send one JSON object per line.
+This is known as [jsonlines](https://jsonlines.org/) or [ndjson](https://docs.mulesoft.com/dataweave/latest/dataweave-formats-ndjson).
 
+Lucky for you, the built-in `encoding/json` supports streaming.
+
+**Listing 14: Streaming JSON**
+
+```go
+09 type Event struct {
+10     Type string  `json:"type"`
+11     X    float64 `json:"x"`
+12     Y    float64 `json:"y"`
+13 }
+14 
+15 func work() error {
+16     events := []Event{
+17         {"click", 100, 200},
+18         {"move", 101, 202},
+19     }
+20 
+21     enc := json.NewEncoder(os.Stdout)
+22 
+23     for _, e := range events {
+24         if err := enc.Encode(e); err != nil {
+25             return err
+26         }
+27     }
+28     return nil
+29 }
+```
+
+Listing 13 shows how to stream JSON.
+On lines 09-13 you define `Event`.
+On line 16-19 you define the data to stream.
+On line 21 you create a `json.Encoder` that emits to the standard outputs,
+and on lines lines 23-27 you use the encoder to encode the data.
+
+If you run the code, you'll see the following output:
+
+**Listing 14: Streaming output**
+
+```json
+{"type":"click","x":100,"y":200}
+{"type":"move","x":101,"y":202}
+```
+
+Listing 14 shows the output of running the code in listing 13.
+
+When using JSON over HTTP, you can use [Chunked transfer encoding](https://en.wikipedia.org/wiki/Chunked_transfer_encoding) which lets you send the output in chunks.
+
+**Listing 15: Streaming JSON over HTTP**
+
+```go
+41 func eventsHandler(w http.ResponseWriter, r *http.Request) {
+42     ctrl := http.NewResponseController(w)
+43 
+44     enc := json.NewEncoder(w)
+45     for evt := range queryEvents() {
+46         if err := enc.Encode(evt); err != nil {
+47             // Can't set error
+48             slog.Error("JSON encode", "error", err)
+49             return
+50         }
+51 
+52         if err := ctrl.Flush(); err != nil {
+53             slog.Error("flush", "error", err)
+54             return
+55         }
+56     }
+57 }
+58 
+59 func main() {
+60     http.HandleFunc("/events", eventsHandler)
+61 
+62     addr := ":8080"
+63     slog.Info("server starting", "address", addr)
+64     if err := http.ListenAndServe(addr, nil); err != nil {
+65         fmt.Fprintf(os.Stderr, "error: %s\n", err)
+66         os.Exit(1)
+67     }
+68 }
+
+```
+
+Listing 15 shows how to stream JSON over HTTP using chunked transfer encoding.
+On line 42 we create an `http.ResponseController`.
+On line 44 we create an encoder and on line 45 we iterate over the events.
+On line 52 we call the controller `Flush` method that will send the data right away.
+Lines 59-68 show how to run the server on port 8080, the handler is mounted on `/events`.
+
+Let's use `netcat` to view the underlying HTTP traffic.
+
+**Listing 16: Calling Streaming Handler**
+
+```bash
+03 nc localhost 8080 << EOF
+04 GET /events HTTP/1.1
+05 Host: localhost
+06 Connection: close
+07 
+08 EOF
+```
+
+Listing 16 shows how to use `netcat` to make an HTTP request.
+On line 03 you use `nc` (`netcat` command line) to connect to localhost on port 8080
+On lines 04-08 you hand carft an HTTP request.
+
+If you run the server code in listing 15 and then this code, you will see the following output:
+
+**Listing 17: HTTP Chunked Transfer Encoding
+
+```
+01 HTTP/1.1 200 OK
+02 Date: Mon, 02 Sep 2024 05:55:46 GMT
+03 Content-Type: text/plain; charset=utf-8
+04 Connection: close
+05 Transfer-Encoding: chunked
+06 
+07 21
+08 {"type":"click","x":100,"y":200}
+09 
+10 20
+11 {"type":"move","x":101,"y":202}
+12 
+13 20
+14 {"type":"move","x":102,"y":203}
+15 
+16 20
+17 {"type":"move","x":103,"y":204}
+18 
+19 20
+20 {"type":"move","x":104,"y":204}
+21 
+22 21
+23 {"type":"click","x":104,"y":204}
+24 
+25 0
+```
+
+Listing 17 shows the raw HTTP traffic.
+On line 05 the server sets the `Tranfer-Encoding` HTTP header to `chunked`.
+Note there is no `Content-Length` header since the server does not know how much data is sent.
+One lines 07-25 you get the data in chunks.
+Each chunk is prefixed by the chunk size and then the chunk data.
+On line 25 the server signals there's no more data by send `0` size.
+
+### Receiving Streaming JSON
+
+On the receiving side, the json `Decoder` can handler multiple JSON objects.
+
+**Listing 18: Consuming Streamed JSON**
+
+```go
+16 func work() error {
+17     var data = `
+18     {"type":"click","x":100,"y":200}
+19     {"type":"move","x":101,"y":202}
+20     `
+21 
+22     dec := json.NewDecoder(strings.NewReader(data))
+23 
+24     for {
+25         var e Event
+26         err := dec.Decode(&e)
+27         if err == io.EOF {
+28             break
+29         }
+30         if err != nil {
+31             return err
+32         }
+33         fmt.Println(e)
+34     }
+35 
+36     return nil
+37 }
+```
+
+Listing 18 shows how to consume streaming data.
+On lines 17-19 you define the data to consume.
+On line 22 you create the JSON decoder.
+One lines 24-34 you loop over the steaming data.
+Since you don't know how much data is coming, you run an empty `for` loop.
+On line 25 you define the event to be decoded and on line 26 you decode the current event.
+On line 27 you check for `io.EOF` that signals end of data.
 
 ### Conclusion
 
-Contact me at [miki@ardanlabs.com](mailto:miki@ardanlabs.com).
+JSON is a simple format, but there are many considerations and techniques to know when working with it.
+In this blog post, I've covered the most common practices I use when working with JSON.
 
-
+If you have any other tips and tricks for working with JSON, I'd love to hear from you.
+Reach out to me at miki@ardanlabs.com
