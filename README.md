@@ -21,14 +21,14 @@ Before diving into JSON, I'd like to take a look at serialization in general and
 Serialization is the process of converting a value in Go to bytes on one side and converting a sequence of bytes to a value on the other side.
 The question is: Why do you need serialization?
 
-The answer is that under the hood, computers stores everything in bytes.
+The answer is that under the hood, computers store everything in bytes.
 When you need to transfer data between two pieces of code that don't share memory,
 you first need to serialize the data and then transfer it.
 You'll use serialization in network operations, saving data to disk or a database and more.
 
 ### Common Mistakes in Serialization
 
-The first the mistake is passing serialized data in regular function calls.
+The first mistake is passing serialized data in regular function calls.
 For example, say you pass time as the string `"2024-08-19T12:12:39.295144041Z"`,
 which means that when you want to do some date related operations, say get the year, 
 you need to call `time.Parse` to convert it back to a `time.Time` object.
@@ -38,9 +38,10 @@ If you look at the major three layers of a program, then only the API and the st
 
 ![](layers.png)
 
+
 The second mistake is using the same data structure in different layers of your code.
-When you work with document oriented databases such as ElasticSearch,
-it's super convenient to get a request for a document, pluck it from the database and return it "as is".
+When you work with document oriented databases, such as ElasticSearch,
+It is super convenient to get a request for a document, pluck it from the database and return it "as is".
 However, you are tying the storage layer to the business layer to the API layer.
 Which means that if you make a change to the database schema, you have changed your API - not a recipe for happy users.
 
@@ -51,12 +52,13 @@ You should have a different `User` type at each layer.
 
 ![](layers-user.png)
 
+
 At the beginning, these `User` types look the same.
-But, over time, each layer `User` type diverge.
+But, over time, each layer `User` type diverges.
 This way, you can make database schema changes without affecting your API.
 
 You should also only look "down" at types, the storage layer knows only about its `User`,
-while the business layer know about it's `User` and also the storage `User` so it'll be able to convert between these types.
+while the business layer knows about its `User` and also the storage `User` so it'll be able to convert between these types.
 
 The third mistake is not validating incoming data.
 An income request that is valid JSON does not mean a valid request.
@@ -87,8 +89,8 @@ Text based makes it readable to humans, but you pay a price in the size of the e
 For example, you can encode the number `123` can in a single byte,
 but in JSON it's encoded as the string `123` which is three bytes.
 
-No schema means you can quickly develop and change the data,
-however no schema means you need to work harder on validating incoming data.
+No schema means you can quickly develop and change the data.
+However, no schema means you need to work harder on validating incoming data.
 
 Every serialization protocol defines its own set of types,
 and it's up to the language to decide on the mapping between JSON types and the types in the language.
@@ -99,14 +101,14 @@ In Go, the mapping is as follows:
 |-----------|-------------------------------------------------------------|
 | string    | string                                                      |
 | number    | float64, float32, int, int8, ... int64, uint8 ... uint64    |
-| boolean   | bool                                                        |
+| boolean   | bool                                              |
 | null      | nil                                                         |
 | array     | []T, []any                                                  |
 | object    | struct, map[string]any                                      |
 
 
 Some points to consider:
-- Not everything in Go is nil-able. In JSON you can have a `null` string member, but in Go you can't have nil string field.
+- Not everything in Go is nil-able. In JSON you can have a `null` string member, but in Go you can't have a nil string field.
 - JSON has one number type, Go has many.
 - JSON arrays can have mixed types, Go slices can't - unless you use `[]any` which is painful since you need to do type assertions.
 - Using structs, you can give `encoding/json` hints on how to convert JSON types to Go types.
@@ -130,7 +132,7 @@ This package defines the following API:
 `encoding/json` can work in memory with `[]byte` or in streaming with `io.Reader` and `io.Writer`.
 
 Pick the right method depending on the situation.
-For example, if you decode an incoming HTTP request body, that implements `io.Reader`, use `json.NewDecoder`.
+For example, if you decode an incoming HTTP request body that implements `io.Reader`, use `json.NewDecoder`.
 
 ### Unmarshaling
 
@@ -165,7 +167,7 @@ On lines 15-18 you define the `User` type with `Login` and `U
 On line 20 you define a `u` variable and on lines 21-23 you unmarshal the JSON data into it.
 Finally, on line 24 you print `u`. You can see that there's no error and only `Login` was filled.
 
-`encoding/json` works only with exported fields that start with uppercase letter.
+`encoding/json` works only with exported fields that start with uppercase letters.
 However, in JSON the convention is to use lower case names.
 `encoding/json` has a heuristic to convert names from JSON to Go,
 and in Listing 2 uses the `login` from the JSON document to fill the `Login` field.
@@ -197,18 +199,18 @@ for this you can use [field tags](https://go.dev/ref/spec#Struct_types).
 ```
 
 Listing 3 shows how to use field tags.
-On lines 10-13 you have JSON document with a `name` member.
+On lines 10-13 you have a JSON document with a `name` member.
 On lines 15-18 you define the `User` struct.
 On line 16 you use the field tag `json:"name"` to tell `encoding/json` to use the `name` member to fill the `Login` field.
 On lines 20-23 you unmarshal the JSON document to the `u` variable and on line 24 you print it.
 You can see that the `Login` field is filled from the `name` JSON member.
 
-The field tags used by `encoding/json` has a mini-langugae, 
+The field tags used by `encoding/json` has a mini-language, 
 [read the documentation](https://pkg.go.dev/encoding/json#Marshal) to learn more.
 
 ### Missing vs Zero Values
 
-Go initializes each variable to it's zero value.
+Go initializes each variable to its zero value.
 If you declare `var s string` then Go will assign `s` to the empty string (`""`),
 which is the zero value for strings.
 Default initialization is great, but when working with JSON it creates an issue of zero vs missing values.
@@ -216,6 +218,7 @@ Default initialization is great, but when working with JSON it creates an issue 
 Let see an example, say you have the following request for starting a virtual machine (VM).
 
 **Listing 4: `StartVM` struct
+
 ```go
 08 type StartVM struct {
 09     Image string
@@ -280,7 +283,6 @@ You should do the same for `req.Image`.
 The problem with the pointer approach is that you use pointers,
 which might lead to `nil` pointer panics and also makes it harder to work with `req.Count` since you need to dereference (e.g. `*req.Count`) it every time you need the actual int value.
 
-
 #### Using a Map
 
 Another option is to use a `map[string]any`, then you can check if `count` is in the incoming JSON.
@@ -317,7 +319,7 @@ Another option is to use a `map[string]any`, then you can check if `count` is in
 79     }
 ```
 
-Listing 7 show how to use a map to know if the user passed `count`.
+Listing 7 shows how to use a map to know if the user passed `count`.
 On lines 53-56 you unmarshal the request data to `map[string]any`.
 On lines 58-60 you check if `m` has a `count` key and if not assign it to the default value of `1`.
 On lines 62-65 you extract the `image` value from `m` and use type assertion to convert it to a string.
@@ -327,7 +329,7 @@ Finally, on lines 76-79 you create the request.
 On line 78 you convert `count` from `float64` to an `int`.
 
 This approach has much more code, and every time you work with `any` you need to do type assertions.
-To each the pain, you can look at [mapstructure](https://pkg.go.dev/github.com/mitchellh/mapstructure) that unmarshals from `map[string]any` into a struct.
+To ease the pain, you can look at [mapstructure](https://pkg.go.dev/github.com/mitchellh/mapstructure) that unmarshals from `map[string]any` into a struct.
 
 #### Using Default Values
 
@@ -356,7 +358,7 @@ On lines 96-98 you check that `req.Count` is valid.
 If the user didn't send `count`, then `encoding/json` won't change `Count` and it'll stay the default 1.
 If the user does send `count`, it'll override the current value in `Count` and you can check for correctness.
 
-### Type Pollution
+### Avoiding Type Pollution
 
 Say you'd like to parse a very complex JSON, but you need only parts of it.
 For this example, look at the JSON returned from [stocktwits](https://stocktwits.com/).
@@ -412,7 +414,7 @@ You'd like to know which stocks that are not `AAPL` appear in the message and th
 Something like `{"IBM": 3, "INTC": 2}`.
 
 If you're going to model all of the JSON using structs, you create many structs for each part of it.
-However, these structs are one-off and used only for parsing. You create a "type pollution".
+However, these structs are one-off and used only for parsing. You create "type pollution".
 
 You can take the fact that `encoding/json` ignores JSON members that do not appear in the struct.
 And to avoid type pollution, you can use an anonymous struct.
@@ -447,8 +449,8 @@ On lines 30-36 you define `reply` which is an anonymous struct containing only t
 On lines 38-48 you unmarshal the JSON data into `reply`.
 On lines 42-49 you go over the message and update the `related` count.
 
-Now let's look at the other side - marshalling.
-We'll look into two things - custom marshalling and streaming.
+Now let's look at the other side - marshaling.
+We'll look into two things - custom marshaling and streaming.
 
 ### Custom Marshaling
 
@@ -531,11 +533,10 @@ On lines 35-40 you use `fmt.Fscanf` to read the values from `data` into `a` and 
 I prefer to scan into new variables and not `v`'s fields in case the first scanned value works and the second does not.
 One lines 42-43 you assign `a' and `u` to `v`'s fields.
 
-
 ### Streaming JSON
 
 There are cases where the data is too large, or comes at unknown intervals.
-In these cases, you'd want to stream the data instead of wait for all the data to come and then construct a huge JSON reply.
+In these cases, you'd want to stream the data instead of waiting for all the data to come and then construct a huge JSON reply.
 
 The JSON protocol does not have built-in support for streaming, the common approach is to send one JSON object per line.
 This is known as [jsonlines](https://jsonlines.org/) or [ndjson](https://docs.mulesoft.com/dataweave/latest/dataweave-formats-ndjson).
@@ -572,7 +573,7 @@ Listing 13 shows how to stream JSON.
 On lines 09-13 you define `Event`.
 On line 16-19 you define the data to stream.
 On line 21 you create a `json.Encoder` that emits to the standard outputs,
-and on lines lines 23-27 you use the encoder to encode the data.
+and on lines 23-27 you use the encoder to encode the data.
 
 If you run the code, you'll see the following output:
 
@@ -618,7 +619,6 @@ When using JSON over HTTP, you can use [Chunked transfer encoding](https://en.wi
 66         os.Exit(1)
 67     }
 68 }
-
 ```
 
 Listing 15 shows how to stream JSON over HTTP using chunked transfer encoding.
@@ -646,7 +646,7 @@ On lines 04-08 you hand carft an HTTP request.
 
 If you run the server code in listing 15 and then this code, you will see the following output:
 
-**Listing 17: HTTP Chunked Transfer Encoding
+**Listing 17: HTTP Chunked Transfer Encoding**
 
 ```
 01 HTTP/1.1 200 OK
@@ -681,11 +681,11 @@ On line 05 the server sets the `Tranfer-Encoding` HTTP header to `chunked`.
 Note there is no `Content-Length` header since the server does not know how much data is sent.
 One lines 07-25 you get the data in chunks.
 Each chunk is prefixed by the chunk size and then the chunk data.
-On line 25 the server signals there's no more data by send `0` size.
+On line 25 the server signals there's no more data by sending `0` size.
 
 ### Receiving Streaming JSON
 
-On the receiving side, the json `Decoder` can handler multiple JSON objects.
+On the receiving side, the json `Decoder` can handle multiple JSON objects.
 
 **Listing 18: Consuming Streamed JSON**
 
@@ -720,7 +720,7 @@ On line 22 you create the JSON decoder.
 One lines 24-34 you loop over the steaming data.
 Since you don't know how much data is coming, you run an empty `for` loop.
 On line 25 you define the event to be decoded and on line 26 you decode the current event.
-On line 27 you check for `io.EOF` that signals end of data.
+On line 27 you check for `io.EOF` that signals the end of data.
 
 ### Conclusion
 
