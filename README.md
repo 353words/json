@@ -8,6 +8,11 @@ url = "FIXME"
 author = "mikit"
 +++
 
+<!--
+playground/validator
+dynamic json (RawJSON, mapstructure)
+-->
+
 ### Introduction
 
 Everybody knows [JSON](https://www.json.org/), it's a simple serialization format and the default format for REST APIs.
