@@ -1,0 +1,25 @@
+$ curl --raw -i http://localhost:8080/events
+HTTP/1.1 200 OK
+Date: Tue, 19 Nov 2024 17:15:21 GMT
+Content-Type: text/plain; charset=utf-8
+Transfer-Encoding: chunked
+
+21
+{"type":"click","x":100,"y":200}
+
+20
+{"type":"move","x":101,"y":202}
+
+20
+{"type":"move","x":102,"y":203}
+
+20
+{"type":"move","x":103,"y":204}
+
+20
+{"type":"move","x":104,"y":204}
+
+21
+{"type":"click","x":104,"y":204}
+
+0
